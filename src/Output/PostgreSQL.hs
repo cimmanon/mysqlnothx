@@ -67,8 +67,9 @@ secondPass xs =
 	transaction.
 	-}
 	<> BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText exists)
-	<> "\n/*\n-- Constraints referencing tables that aren't part of the dump file.\n-- These will most likely need to be added by hand \n\n"
-	<> BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText notExists) <> "*/"
+	<> "\n-- Constraints referencing tables that aren't part of the dump file.\n\n"
+	<> "SAVEPOINT imaginary_constraints;\n\n"
+	<> BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText notExists) <> "\n\n"
 	where
 		justTables = filter isTable xs
 		sequences = filter isSequence xs
