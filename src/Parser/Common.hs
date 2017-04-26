@@ -3,8 +3,6 @@
 module Parser.Common where
 
 import Data.Word (Word8)
-import Data.Function (on)
-import Data.List (groupBy, sortBy)
 import Data.Monoid ((<>), mappend, Monoid)
 import Control.Applicative
 

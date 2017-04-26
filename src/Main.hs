@@ -9,7 +9,6 @@ import Control.Monad.IO.Class (MonadIO)
 import Data.ByteString (ByteString)
 
 -- IO
-import Data.Monoid ((<>))
 import qualified Data.ByteString.Char8 as BS (putStrLn)
 import System.Exit (ExitCode (..), exitSuccess, exitFailure)
 import System.IO (hPutStrLn, stderr)
@@ -28,9 +27,7 @@ import Control.Monad.Trans.State.Strict
 -- local imports
 import Data.Construct
 import Parser.Flow
-import Parser.Data
 
-import qualified Output as O
 import qualified Output.PostgreSQL as P
 
 main :: IO ExitCode

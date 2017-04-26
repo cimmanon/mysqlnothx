@@ -2,7 +2,6 @@
 
 module Data.Construct where
 
-import Control.Applicative ((<$>))
 import Data.List (find)
 import Data.Maybe (isJust)
 import Data.ByteString (ByteString)

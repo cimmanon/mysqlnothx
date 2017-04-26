@@ -7,8 +7,8 @@ import Data.Char (toLower)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C
 import Data.List (partition, find)
-import Data.Maybe (fromMaybe, isJust)
-import Data.Monoid ((<>), mappend)
+import Data.Maybe (isJust)
+import Data.Monoid ((<>))
 
 import Data.Construct
 import qualified Output as O

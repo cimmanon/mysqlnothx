@@ -2,16 +2,14 @@
 
 module Parser.Flow where
 
-import Data.Word (Word8)
 import Data.Function (on)
 import Data.List (groupBy, sortBy)
-import Data.Monoid ((<>), mappend, Monoid)
+import Data.Monoid ((<>))
 import Control.Applicative
 
 import Prelude hiding (concat, takeWhile)
 import Data.Attoparsec.ByteString
 import qualified Data.ByteString as BS
-import Data.ByteString.Internal (isSpaceWord8, c2w)
 
 import Data.Construct
 import Parser.Common

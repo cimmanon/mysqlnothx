@@ -3,9 +3,8 @@
 module Output where
 
 --import Control.Monad.Reader
-import Control.Applicative ((<$>))
-import Data.List (find, partition)
-import Data.Maybe (fromMaybe, isJust, fromJust, listToMaybe, mapMaybe)
+import Data.List (partition)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Monoid ((<>))
 import qualified Data.ByteString as BS hiding (pack, cons, snoc, singleton, replicate)
 import qualified Data.ByteString.Char8 as BS (pack, cons, snoc, singleton, replicate)
