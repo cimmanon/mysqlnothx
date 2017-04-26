@@ -49,27 +49,32 @@ firstPass xs =
 
 secondPass :: [Construct] -> BS.ByteString
 secondPass xs =
-	O.sectionComment "Unique Constraints"
-	<> BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText notFk)
-	<> "\n" <> O.sectionComment "Indexes"
-	<> BS.intercalate "\n" (O.removeEmpties $ map O.indexToText indexes)
-	<> "\n" <> O.sectionComment "Reset Sequences"
-	<> BS.intercalate "\n" (O.removeEmpties $ map resetSequence sequences)
-	<> "\n" <> O.sectionComment "Foreign Keys"
-	{-
-	MySQL allows tables to exist that have foreign keys that reference non-existant tables
-	when created with `SET FOREIGN_KEY_CHECKS = 0;`
+	BS.concat
+		[ O.sectionComment "Unique Constraints"
+		, BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText notFk)
+		, "\n"
+		, O.sectionComment "Indexes"
+		, BS.intercalate "\n" (O.removeEmpties $ map O.indexToText indexes)
+		, "\n"
+		, O.sectionComment "Reset Sequences"
+		, BS.intercalate "\n" (O.removeEmpties $ map resetSequence sequences)
+		, "\n"
+		, O.sectionComment "Foreign Keys"
+		{-
+		MySQL allows tables to exist that have foreign keys that reference non-existant tables
+		when created with `SET FOREIGN_KEY_CHECKS = 0;`
 
-	For now, we're going to split up the foreign keys into a existing/not existing.  The
-	"existing" foreign keys will be generated, then the not existing foreign keys will be
-	generated inside comments.  Thinking about having this be configurable, since it might
-	be nice to automatically run the "not existing" foreign keys, but outside of the
-	transaction.
-	-}
-	<> BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText exists)
-	<> "\n-- Constraints referencing tables that aren't part of the dump file.\n\n"
-	<> "SAVEPOINT imaginary_constraints;\n\n"
-	<> BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText notExists) <> "\n\n"
+		For now, we're going to split up the foreign keys into a existing/not existing.  The
+		"existing" foreign keys will be generated, then the not existing foreign keys will be
+		generated inside comments.  Thinking about having this be configurable, since it might
+		be nice to automatically run the "not existing" foreign keys, but outside of the
+		transaction.
+		-}
+		, BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText exists)
+		, "\n-- Constraints referencing tables that aren't part of the dump file.\n\n"
+		, "SAVEPOINT imaginary_constraints;\n\n"
+		, BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText notExists) <> "\n\n"
+		]
 	where
 		justTables = filter isTable xs
 		sequences = filter isSequence xs
@@ -209,6 +214,9 @@ fromMysqlDateTime (Column n t xs) =
 		changeDefault (Default "'0000-00-00'") = Default "CURRENT_TIMESTAMP"
 		changeDefault x = x
 
+{-
+SELECT setval(pg_get_serial_sequence('[table name]', '[column name]'), 1), (SELECT COALESCE(max([column name]), 1) FROM [table name]));
+-}
 resetSequence :: Construct -> BS.ByteString
 resetSequence (Sequence n s i (Just (ConstructIdentifier o))) =
 	-- not sure why the table name needs to be quoted (for case sensitivity purposes)
@@ -218,9 +226,17 @@ resetSequence (Sequence n s i (Just (ConstructIdentifier o))) =
 		table = BS.intercalate "." $ map (O.quoteIdentifier O.defaultParams) $ init o
 		column = last o
 	in
-		"SELECT setval(pg_get_serial_sequence('" <> table <> "', '" <> column
-		<> "'), (SELECT COALESCE(max(" <> (O.quoteIdentifier O.defaultParams) column
-		<> "), 1) FROM " <> table <> "));"
+		BS.concat
+			[ "SELECT setval(pg_get_serial_sequence('"
+			, table
+			, "', '"
+			, column
+			, "'), (SELECT COALESCE(max("
+			, (O.quoteIdentifier O.defaultParams) column
+			, "), 1) FROM "
+			, table
+			, "));"
+			]
 resetSequence (Sequence {}) = ""
 
 {----------------------------------------------------------------------------------------------------{

@@ -79,24 +79,50 @@ doNotOutput _ = ""
 
 --------------------------------------------------------------------- | Table
 
+{-
+CREATE TABLE (
+	[columns]
+);
+-}
 tableToText :: Construct -> BS.ByteString
 tableToText (Table n b) | not (null justColumns) =
-	"CREATE TABLE " <> constructIdentifierToText n <> " (\n"
-	<> "\t" <> flattenColumns
-	<> "\n);\n"
+	BS.concat
+		[ "CREATE TABLE "
+		, constructIdentifierToText n
+		, " (\n\t"
+		, flattenColumns
+		, "\n);\n"
+		]
 	where
 		justColumns = filter isColumn b
 		flattenColumns = BS.intercalate ",\n\t" $ map columnToText justColumns
 
 --------------------------------------------------------------------- | Comment
 
+{-
+COMMENT ON [construct type] IS [comment];
+-}
 commentToText :: Construct -> BS.ByteString
 commentToText (Comment t n c) =
-	"COMMENT ON " <> t <> " " <> constructIdentifierToText n <> " IS " <> (quoteString defaultParams) c <> ";\n"
+	BS.concat
+		[ "COMMENT ON "
+		, t
+		, " "
+		, constructIdentifierToText n
+		, " IS "
+		, (quoteString defaultParams) c
+		,  ";\n"
+		]
 
 --------------------------------------------------------------------- | Sequence
 
 -- TODO: move this to the Postgresql module
+
+{-
+CREATE SEQUENCE [identifier] START [] INCREMENT [increment amount];
+ALTER SEQUENCE [identifier] OWNED BY [table identifier];
+ALTER TABLE [] ALTER COLUMN [table identifier] SET DEFAULT NEXTVAL('[current count]');
+-}
 sequenceToText :: Construct -> BS.ByteString
 sequenceToText (Sequence n s i o) =
 	"CREATE SEQUENCE " <> (quoteIdentifier defaultParams) n
@@ -116,16 +142,23 @@ sequenceToText (Sequence n s i o) =
 
 --------------------------------------------------------------------- | Constraint
 
+{-
+ALTER TABLE [table identifier] ADD [constraint information];
+-}
 constraintToText :: Construct -> BS.ByteString
 constraintToText (Table name body) =
 	BS.concat $ map toText justColumns
 	where
 		justColumns = filter isConstraint body
 		toText (Constraint name' info) =
-			"ALTER TABLE " <> constructIdentifierToText name <> " ADD "
---          <> maybe "" (\x -> "CONSTRAINT " <> x <> " ") name'
-			<> theRest info
-			<> ";\n"
+			BS.concat
+			[ "ALTER TABLE "
+			, constructIdentifierToText name
+			, " ADD "
+			, maybe "" (\x -> BS.concat ["CONSTRAINT ", x, " "]) name'
+			, theRest info
+			, ";\n"
+			]
 		theRest t =
 			case t of
 				-- TODO: quote the identifiers here
@@ -139,16 +172,24 @@ constraintToText (Table name body) =
 
 --------------------------------------------------------------------- | Indexes
 
+{-
+CREATE INDEX [index name] ON [table name] USING [index type] ([column identifiers]);
+-}
 indexToText :: Construct -> BS.ByteString
 indexToText (Table name body) =
 	BS.concat $ map toText $ filter isIndex body
 	where
 		toText (Index n cs x) =
-			"CREATE INDEX "
---          <> maybe "" (quoteIdentifier defaultParams) n
-			<> " ON " <> constructIdentifierToText name
-			<> maybe "" (" USING " <> ) x
-			<> " (" <> BS.intercalate ", " (map colToText cs) <> ");\n"
+			BS.concat
+				[ "CREATE INDEX "
+				, maybe "" (quoteIdentifier defaultParams) n
+				, " ON "
+				, constructIdentifierToText name
+				, maybe "" (" USING " <> ) x
+				, " ("
+				, BS.intercalate ", " (map colToText cs)
+				, ");\n"
+				]
 		-- TODO: quoting was removed on `n` because it is now an expression.
 		-- We need to add it back in where appropriate, but that requires
 		-- significant change to the parser.
@@ -174,7 +215,7 @@ indexToText (Table name body) =
 
 columnToText :: TableAttribute -> BS.ByteString
 columnToText (Column n t attrs) =
-	(quoteIdentifier defaultParams) n <> " " <> t <> " " <> columnAttributesToText attrs
+	BS.intercalate " " [ (quoteIdentifier defaultParams) n, t, columnAttributesToText attrs ]
 
 columnAttributesToText :: [ColumnAttribute] -> BS.ByteString
 columnAttributesToText =
@@ -222,9 +263,15 @@ COMMENT ON CONSTRAINT bar_col_cons ON bar IS 'Constrains column col';
 comment :: BS.ByteString -> ConstructIdentifier -> BS.ByteString -> BS.ByteString
 --comment objType objName c = "COMMENT ON " <> objType <> " " <> (quoteIdentifier defaultParams) objName <> " " <>  (quoteString defaultParams) c <> ";"
 comment objType objName c =
-	"/* COMMENT ON " <> objType <> " "
-	<> constructIdentifierToText objName <> " "
-	<> (quoteString defaultParams) c <> "; */"
+	BS.concat
+		[ "/* COMMENT ON "
+		, objType
+		, " "
+		, constructIdentifierToText objName
+		, " "
+		, (quoteString defaultParams) c
+		, "; */"
+		]
 
 {----------------------------------------------------------------------------------------------------{
 																	  | Inserts
