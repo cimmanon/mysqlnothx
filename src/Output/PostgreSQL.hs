@@ -45,10 +45,10 @@ constructToText x@(Sequence {}) = O.doNotOutput x
 firstPass :: [Construct] -> BS.ByteString
 firstPass xs =
 	O.sectionComment "Tables"
-	<> BS.intercalate "\n" (O.removeEmpties $ map constructToText xs)
+	<> BS.intercalate "\n" (O.removeEmpties $ map constructToText $ transformConstructs xs)
 
 secondPass :: [Construct] -> BS.ByteString
-secondPass xs =
+secondPass xs' =
 	BS.concat
 		[ O.sectionComment "Unique Constraints"
 		, BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText notFk)
@@ -76,6 +76,7 @@ secondPass xs =
 		, BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText notExists) <> "\n\n"
 		]
 	where
+		xs = transformConstructs xs'
 		justTables = filter isTable xs
 		sequences = filter isSequence xs
 		(columns, notColumns) = O.partitionTables isColumn justTables
