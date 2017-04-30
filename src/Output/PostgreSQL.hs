@@ -7,7 +7,7 @@ import Data.Char (toLower)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C
 import Data.List (partition, find)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, mapMaybe)
 import Data.Monoid ((<>))
 
 import Data.Construct
@@ -37,9 +37,26 @@ CREATE TRIGGER ${table_name}_${column_name}_to_now BEFORE UPDATE
 	ON ${table_name} FOR EACH ROW EXECUTE PROCEDURE set_${column_name}_to_now();
 -}
 
+{----------------------------------------------------------------------------------------------------{
+                                                                      | Helper Functions
+}----------------------------------------------------------------------------------------------------}
+
+quoteIdentifier :: Identifier -> BS.ByteString
+quoteIdentifier = O.quoteIdentifier '"'
+
+quoteString :: BS.ByteString -> BS.ByteString
+quoteString = O.quoteString '\'' '\''
+
+constructIdentifierToText :: ConstructIdentifier -> BS.ByteString
+constructIdentifierToText (ConstructIdentifier xs) = BS.intercalate "." $ map quoteIdentifier xs
+
+{----------------------------------------------------------------------------------------------------{
+                                                                      | Constructs
+}----------------------------------------------------------------------------------------------------}
+
 constructToText :: Construct -> BS.ByteString
-constructToText x@(Table {}) = O.tableToText x
-constructToText x@(Comment {}) = O.commentToText x
+constructToText x@(Table {}) = tableToText x
+constructToText x@(Comment {}) = commentToText x
 constructToText x@(Sequence {}) = O.doNotOutput x
 
 firstPass :: [Construct] -> BS.ByteString
@@ -51,10 +68,10 @@ secondPass :: [Construct] -> BS.ByteString
 secondPass xs' =
 	BS.concat
 		[ O.sectionComment "Unique Constraints"
-		, BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText notFk)
+		, BS.intercalate "\n" (O.removeEmpties $ map constraintToText notFk)
 		, "\n"
 		, O.sectionComment "Indexes"
-		, BS.intercalate "\n" (O.removeEmpties $ map O.indexToText indexes)
+		, BS.intercalate "\n" (O.removeEmpties $ map indexToText indexes)
 		, "\n"
 		, O.sectionComment "Reset Sequences"
 		, BS.intercalate "\n" (O.removeEmpties $ map resetSequence sequences)
@@ -70,10 +87,10 @@ secondPass xs' =
 		be nice to automatically run the "not existing" foreign keys, but outside of the
 		transaction.
 		-}
-		, BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText exists)
+		, BS.intercalate "\n" (O.removeEmpties $ map constraintToText exists)
 		, "\n-- Constraints referencing tables that aren't part of the dump file.\n\n"
 		, "SAVEPOINT imaginary_constraints;\n\n"
-		, BS.intercalate "\n" (O.removeEmpties $ map O.constraintToText notExists) <> "\n\n"
+		, BS.intercalate "\n" (O.removeEmpties $ map constraintToText notExists) <> "\n\n"
 		]
 	where
 		xs = transformConstructs xs'
@@ -82,10 +99,10 @@ secondPass xs' =
 		(columns, notColumns) = O.partitionTables isColumn justTables
 		(indexes, constraints) = O.partitionTables isIndex notColumns
 		(fk, notFk) = O.partitionConstraints constraints
-		(exists, notExists) = O.partitionTables (isRealConstraint notFk) fk
+		(exists, notExists) = O.partitionTables (O.isRealConstraint notFk) fk
 
 {----------------------------------------------------------------------------------------------------{
-																	  | Transformers
+                                                                      | Transformers
 }----------------------------------------------------------------------------------------------------}
 
 transformConstructs :: [Construct] -> [Construct]
@@ -95,9 +112,10 @@ transformConstruct :: Construct -> [Construct]
 transformConstruct (Table n xs) =
 	let
 		(columns, notColumns) = partition isColumn xs
-		(attrs, constructs) = unzip $ map (transformColumn n . columnFromMysql) columns
+		(attrs, constructs) = unzip $ map (transformColumn n) columns
 	in
 		Table n (notColumns ++ concat attrs) : concat constructs
+transformConstruct _ = []
 
 transformColumn :: ConstructIdentifier -> TableAttribute -> ([TableAttribute], [Construct])
 transformColumn n@(ConstructIdentifier ix) (Column n' t xs) =
@@ -108,22 +126,22 @@ transformColumn n@(ConstructIdentifier ix) (Column n' t xs) =
 		(Column n' t columnAttrs : map toTableAttribute tableAttrs, map toConstruct constructs)
 	where
 		toTableAttribute x = case x of
-			PrimaryKey' -> Constraint Nothing (PrimaryKey [n'])
-			Unique' -> Constraint Nothing (Unique [n'])
+			InlinePrimaryKey -> Constraint Nothing (PrimaryKey [n'])
+			InlineUnique -> Constraint Nothing (Unique [n'])
 		toConstruct x = case x of
 			AutoIncrement -> Sequence (BS.intercalate "_" ix <> "_" <> n' <> "_seq") 1 1 (Just $ appendIdentifier n n')
-			Comment' c -> Comment "COLUMN" (appendIdentifier n n') c
+			InlineComment c -> Comment "COLUMN" (appendIdentifier n n') c
 
 columnAttributeIsConstruct :: ColumnAttribute -> Bool
 columnAttributeIsConstruct x = case x of
 	AutoIncrement -> True
-	Comment' _ -> True
+	InlineComment _ -> True
 	_ -> False
 
 columnAttributeIsTableAttribute :: ColumnAttribute -> Bool
 columnAttributeIsTableAttribute x = case x of
-	PrimaryKey' -> True
-	Unique' -> True
+	InlinePrimaryKey -> True
+	InlineUnique -> True
 	_ -> False
 
 {----------------------------------------------------------------------------------------------------{
@@ -142,78 +160,146 @@ columnAttributeIsTableAttribute x = case x of
 																	  | Tables
 }----------------------------------------------------------------------------------------------------}
 
-columnFromMysql :: TableAttribute -> TableAttribute
-columnFromMysql c@(Column n t xs)
---    | lcT == "tinyint(1)" && Unsigned `notElem` xs = intToBool c
-	-- ^^ make sure only signed tinyints get converted to boolean
-	| lcT `startsWith` "tinyint" = fromMysqlInteger $ changeType "TINYINT"
-	| lcT `startsWith` "smallint" = fromMysqlInteger $ changeType "SMALLINT"
-	| lcT `startsWith` "mediumint" = fromMysqlInteger $ changeType "MEDIUMINT"
-	| lcT `startsWith` "int" = fromMysqlInteger $ changeType "INTEGER"
-	| lcT `startsWith` "bigint" = fromMysqlInteger $ changeType "BIGINT"
-	| lcT == "double" = changeType "REAL"
-	| lcT == "float" = changeType "REAL"
-	| lcT `startsWith` "float(" = changeType ("NUMERIC" <> BS.drop 5 t)
-	| lcT `startsWith` "double(" = changeType ("NUMERIC" <> BS.drop 6 t)
-	-- ^^ NOTE: not sure if this is safe, might be better off just converting it to REAL
-	| lcT == "tinytext" = changeType "TEXT"
-	| lcT == "mediumtext" = changeType "TEXT"
-	| lcT == "longtext" = changeType "TEXT"
-	| lcT `endsWith` "blob" = changeType "BYTEA"
-	| lcT `startsWith` "enum(" = changeType "TEXT"
-	-- ^^ TODO: handle ENUM properly
-	| lcT `startsWith` "set(" = changeType "TEXT"
-	-- ^^ TODO: handle SET properly (see: http://www.rdeeson.com/weblog/88/enums-user-preferences-and-the-mysql-set-datatype.html)
-	| lcT == "datetime" || lcT == "timestamp"  = fromMysqlDateTime $ changeType "TIMESTAMP"
-	| lcT == "date" = fromMysqlDateTime $ changeType "DATE"
-	| lcT == "char(0)" || lcT == "varchar(0)" = changeType "CHAR(1)"
-	-- ^^ [VAR]CHAR(0) is not allowed according to the SQL standard, but MySQL allows it anyway
-	-- TODO: pick a better type (some people use it as a boolean type, but our columns are set to NOT NULL)
-	| otherwise = c
+{-
+CREATE TABLE (
+	[columns]
+);
+-}
+
+tableToText :: Construct -> BS.ByteString
+tableToText (Table n b) | not (null justColumns) =
+	BS.concat
+		[ "CREATE TABLE "
+		, constructIdentifierToText n
+		, " (\n\t"
+		, flattenColumns
+		, "\n);\n"
+		]
 	where
-		lcT = C.map toLower t
-		startsWith = (flip BS.isPrefixOf)
-		endsWith = (flip BS.isSuffixOf)
-		--recurse x y = columnFromMysql $ Column n x y
-		(d, rest) = O.extractFromList isDefault xs
-		changeType newType = Column n newType xs
+		justColumns = filter isColumn b
+		flattenColumns = BS.intercalate ",\n\t" $ map columnToText justColumns
 
-intToBool :: TableAttribute -> TableAttribute
-intToBool (Column n t xs) =
-	Column n "BOOL" $ maybe xs (: rest) (changeDefault <$> d)
+{----------------------------------------------------------------------------------------------------{
+                                                                      | Table Columns
+}----------------------------------------------------------------------------------------------------}
 
+columnToText :: TableAttribute -> BS.ByteString
+columnToText (Column n t attrs) = format $ quoteIdentifier n : definition
 	where
-		(d, rest) = O.extractFromList isDefault xs
+		isAuto = isJust $ find isAutoIncrement attrs
+		intToBS = C.pack . show
+		simplePrecision n i = BS.concat [ n, "(", intToBS $ max 1 i, ")"]
+		-- ^ MySQL allows non-standard precision of 0 for CHAR/VARCHAR, we have to guarantee that it's >= 1
+		definition = case t of
+			Text _ -> "TEXT" : textAttributes
+			Char i -> simplePrecision "CHAR" i : textAttributes
+			Varchar i ->  simplePrecision "VARCHAR" i : textAttributes
 
-		changeDefault (Default "null") = Default "null"
-		changeDefault (Default "0") = Default "false"
-		changeDefault _ = Default "true"
+			Bit i -> simplePrecision "BIT" i : defaultAttributes
+			Blob _ -> "BYTEA" : defaultAttributes
 
--- if our types are unsigned, then we need to bump them up to the next larger integer type.
--- MySQL's unsigned TINYINT/MEDIUMINT types are smaller than a signed SMALLINT/INTEGER, so we
--- don't need to bump those, and a BIGINT can't get any bigger
-fromMysqlInteger :: TableAttribute -> TableAttribute
-fromMysqlInteger c@(Column n t xs)
-	| t == "TINYINT" = changeType $ if isAuto then "SMALLSERIAL" else "SMALLINT"
-	| t == "MEDIUMINT" = changeType $ if isAuto then "SERIAL" else "INTEGER"
-	| not isAuto && t == "SMALLINT" = changeType $ if unsigned then "INTEGER" else "SMALLINT"
-	| not isAuto && t == "INTEGER" = changeType $ if unsigned then "BIGINT" else "INTEGER"
-	| isAuto && t == "SMALLINT" = changeType $ if unsigned then "SERIAL" else "SMALLSERIAL"
-	| isAuto && t == "INTEGER" = changeType $ if unsigned then "BIGSERIAL" else "SERIAL"
-	| isAuto && t == "BIGINT" = changeType "BIGSERIAL"
-	| otherwise = c
-	where
-		isAuto = isJust $ find isAutoIncrement xs
-		unsigned = isJust $ find isUnsigned xs
-		changeType newType = Column n newType xs
+			Numeric (x, y) signed -> BS.concat [ "NUMERIC(", intToBS x, ",", intToBS y, ")" ] : defaultAttributes
+			Float signed -> "REAL" : defaultAttributes
+			Double signed -> "REAL" : defaultAttributes
+			-- integer types require going up to the next biggest type when it's unsigned
+			-- PostgreSQL doesn't have a TINYINT (Integer 1) or MEDIUMINT (Integer 3)
+			Integer i True | isAuto && i <= 3 -> "SMALLSERIAL" : defaultAttributes
+			Integer i _    | isAuto -> "SERIAL" : defaultAttributes
+			Integer i True | i <= 3 -> "SMALLINT" : defaultAttributes
+			Integer 3 False         -> "INTEGER" : defaultAttributes
+			Integer i True | i <= 4 -> "INTEGER" : defaultAttributes
+			Integer _ _             -> "BIGINT" : defaultAttributes
 
-fromMysqlDateTime (Column n t xs) =
-	Column n t $ maybe xs (: rest) (changeDefault <$> d)
-	where
-		(d, rest) = O.extractFromList isDefault xs
-		changeDefault (Default "'0000-00-00 00:00:00'") = Default "CURRENT_TIMESTAMP"
-		changeDefault (Default "'0000-00-00'") = Default "CURRENT_TIMESTAMP"
-		changeDefault x = x
+			Date -> "DATE" : dateAttributes
+			Time -> "TIME" : timestampAttributes
+			Timestamp -> "TIMESTAMP" : timestampAttributes
+
+			Unknown x -> x : defaultAttributes
+
+		format = BS.intercalate " "
+
+		defaultAttributes = mapMaybe defaultAttributeToText attrs
+		textAttributes = mapMaybe textAttributeToText attrs
+		dateAttributes = mapMaybe dateAttributeToText attrs
+		timestampAttributes = mapMaybe timestampAttributeToText attrs
+columnToText _ = ""
+
+---------------------------------------------------------------------- | Attributes for specific column types
+
+-- TODO: deal with default values appropriately
+
+defaultAttributeToText :: ColumnAttribute -> Maybe BS.ByteString
+defaultAttributeToText (Nullable False) = Just "NOT NULL"
+defaultAttributeToText _ = Nothing
+
+-- text
+textAttributeToText :: ColumnAttribute -> Maybe BS.ByteString
+textAttributeToText (Default "''") = Nothing -- Don't allow empty strings by default
+textAttributeToText (Default expr) = Just $ "DEFAULT " <> expr
+textAttributeToText (Collate x) = Just $ "COLLATE " <> x
+textAttributeToText x = defaultAttributeToText x
+
+-- dates
+dateAttributeToText :: ColumnAttribute -> Maybe BS.ByteString
+dateAttributeToText (Default "0000-00-00") = Just "DEFAULT CURRENT_TIMESTAMP"
+dateAttributeToText (Default expr) = Just $ "DEFAULT " <> expr
+dateAttributeToText (OnUpdate _) = Nothing -- TODO: do something with this
+dateAttributeToText x = defaultAttributeToText x
+
+-- timestamps
+timestampAttributeToText :: ColumnAttribute -> Maybe BS.ByteString
+timestampAttributeToText (Default "0000-00-00 00:00:00") = Just "DEFAULT CURRENT_TIMESTAMP"
+timestampAttributeToText (OnUpdate _) = Nothing -- TODO: do something with this
+timestampAttributeToText x = dateAttributeToText x
+
+-- enum/set
+-- TODO
+
+{----------------------------------------------------------------------------------------------------{
+                                                                      | Comments
+}----------------------------------------------------------------------------------------------------}
+
+{-
+COMMENT ON [construct type] [construct identifier] IS [comment];
+-}
+commentToText :: Construct -> BS.ByteString
+commentToText (Comment t n c) =
+	BS.concat
+		[ "COMMENT ON "
+		, t
+		, " "
+		, constructIdentifierToText n
+		, " IS "
+		, quoteString c
+		,  ";\n"
+		]
+
+{-
+{-
+COMMENT ON ConstructType ConstructIdentifier IS Text
+
+COMMENT ON COLUMN my_table.my_column IS 'Employee ID number';
+COMMENT ON TABLE my_schema.my_table IS 'Employee Information';
+COMMENT ON FUNCTION my_function (timestamp) IS 'Returns Roman Numeral';
+COMMENT ON CONSTRAINT bar_col_cons ON bar IS 'Constrains column col';
+-}
+
+comment :: BS.ByteString -> ConstructIdentifier -> BS.ByteString -> BS.ByteString
+--comment objType objName c = "COMMENT ON " <> objType <> " " <> (quoteIdentifier defaultParams) objName <> " " <>  (quoteString defaultParams) c <> ";"
+comment objType objName c =
+	BS.concat
+		[ "/* COMMENT ON "
+		, objType
+		, " "
+		, constructIdentifierToText objName
+		, " "
+		, quoteString c
+		, "; */"
+		]
+-}
+{----------------------------------------------------------------------------------------------------{
+                                                                      | Sequences
+}----------------------------------------------------------------------------------------------------}
 
 {-
 SELECT setval(pg_get_serial_sequence('[table name]', '[column name]'), 1), (SELECT COALESCE(max([column name]), 1) FROM [table name]));
@@ -224,7 +310,7 @@ resetSequence (Sequence n s i (Just (ConstructIdentifier o))) =
 	-- when passed to pg_get_serial_sequence, but the column name should not,
 	-- but that's the rules.  still need to quote it when referencing it elsewhere
 	let
-		table = BS.intercalate "." $ map (O.quoteIdentifier O.defaultParams) $ init o
+		table = BS.intercalate "." $ map quoteIdentifier $ init o
 		column = last o
 	in
 		BS.concat
@@ -233,12 +319,49 @@ resetSequence (Sequence n s i (Just (ConstructIdentifier o))) =
 			, "', '"
 			, column
 			, "'), (SELECT COALESCE(max("
-			, (O.quoteIdentifier O.defaultParams) column
+			, quoteIdentifier column
 			, "), 1) FROM "
 			, table
 			, "));"
 			]
-resetSequence (Sequence {}) = ""
+resetSequence _ = ""
+
+{-
+CREATE SEQUENCE [identifier] START [] INCREMENT [increment amount];
+ALTER SEQUENCE [identifier] OWNED BY [table identifier];
+ALTER TABLE [] ALTER COLUMN [table identifier] SET DEFAULT NEXTVAL('[current count]');
+-}
+sequenceToText :: Construct -> BS.ByteString
+sequenceToText (Sequence n s i o) =
+	BS.concat
+		[ "CREATE SEQUENCE "
+		, quoteIdentifier n
+		, " START "
+		, toText s
+		, " INCREMENT "
+		, toText i
+		, ";\n"
+	--	, maybe "" setOwner o
+		]
+	where
+		toText = C.pack . show
+		{-
+		-- TODO: fix setting ownership
+		setOwner (ConstructIdentifier i) =
+			BS.concat
+				[ "ALTER SEQUENCE "
+				, quoteIdentifier n
+				, " OWNED BY "
+				, constructIdentifierToText ownerIdentifier
+				, ";\n"
+				, "ALTER TABLE "
+				, constructIdentifierToText (ConstructIdentifier $ init i)
+				, " ALTER COLUMN "
+				, quoteIdentifier $ last i
+				, " SET DEFAULT NEXTVAL('"
+				, n
+				, "');\n"
+		-}
 
 {----------------------------------------------------------------------------------------------------{
 																	  | Inserts
@@ -247,23 +370,62 @@ resetSequence (Sequence {}) = ""
 
 
 {----------------------------------------------------------------------------------------------------{
-																	  | Indexes, Constraints, etc.
+																	  | Indexes
 }----------------------------------------------------------------------------------------------------}
 
 {-
-There are 2 instances where a constraint would be considered imaginary:
-
-* The table doesn't exist
-* The table exists, but the columns don't have a unique constraint on them
-
-Both are valid in MySQL, but invalid in PostgreSQL
+CREATE INDEX [index name] ON [table name] USING [index type] ([column identifiers]);
 -}
+indexToText :: Construct -> BS.ByteString
+indexToText (Table name body) =
+	BS.concat $ map toText $ filter isIndex body
+	where
+		toText (Index n cs x) =
+			BS.concat
+				[ "CREATE INDEX "
+				, maybe "" quoteIdentifier n
+				, " ON "
+				, constructIdentifierToText name
+				, maybe "" (" USING " <> ) x
+				, " ("
+				, BS.intercalate ", " (map colToText cs)
+				, ");\n"
+				]
+		-- TODO: quoting was removed on `n` because it is now an expression.
+		-- We need to add it back in where appropriate, but that requires
+		-- significant change to the parser.
+		colToText (n, x) = quoteIdentifier n <> maybe "" (" " <> ) x
 
-isRealConstraint :: [Construct] -> TableAttribute -> Bool
-isRealConstraint xs (Constraint _ (ForeignKey _ (t, cols) _ _)) =
-	let
-		isUniqueConstraint (Constraint _ (Unique cs)) = cs == cols
-		isUniqueConstraint (Constraint _ (PrimaryKey cs)) = cs == cols
-		isUniqueConstraint _ = False
-	in
-		isJust $ find (\ x -> t == name x && not (null $ filter isUniqueConstraint $ body x)) xs
+{----------------------------------------------------------------------------------------------------{
+                                                                      | Constraints
+}----------------------------------------------------------------------------------------------------}
+
+--------------------------------------------------------------------- | Constraint
+
+{-
+ALTER TABLE [table identifier] ADD [constraint information];
+-}
+constraintToText :: Construct -> BS.ByteString
+constraintToText (Table name body) =
+	BS.concat $ map toText justColumns
+	where
+		justColumns = filter isConstraint body
+		toText (Constraint name' info) =
+			BS.concat
+			[ "ALTER TABLE "
+			, constructIdentifierToText name
+			, " ADD "
+			, maybe "" (\x -> BS.concat ["CONSTRAINT ", x, " "]) name'
+			, theRest info
+			, ";\n"
+			]
+		theRest t =
+			case t of
+				-- TODO: quote the identifiers here
+				PrimaryKey cols -> "PRIMARY KEY (" <> toCSV' cols <> ")"
+				Unique cols -> "UNIQUE (" <> toCSV' cols <> ")"
+				ForeignKey cols (ref, refCols) onDelete onUpdate ->
+					"FOREIGN KEY (" <> toCSV' cols
+					<> ") REFERENCES " <> constructIdentifierToText ref <> " (" <> toCSV' refCols <> ")"
+				_ -> "Not implemented"
+		toCSV' = O.toCSV . (map quoteIdentifier)

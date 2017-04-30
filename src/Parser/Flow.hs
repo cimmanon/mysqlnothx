@@ -23,10 +23,8 @@ import Parser.Data
 import Control.Monad.Trans.State
 import Control.Monad.Trans.Class (lift)
 
-type StatefulParser a = StateT ParserState Parser a
-
 {----------------------------------------------------------------------------------------------------{
-																	  | Main Parser
+                                                                      | Main Parser
 }----------------------------------------------------------------------------------------------------}
 
 dump :: Parser (Either [Construct] BS.ByteString)

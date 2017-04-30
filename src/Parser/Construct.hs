@@ -195,21 +195,74 @@ tableColumn =
 				(string "NOT NULL" >> return (Nullable False))
 			<|> (string "NULL" >> return (Nullable True))
 			<|> do Default <$> (string "DEFAULT" *> spaces *> expression)
-			<|> do Comment' <$> (string "COMMENT" *> spaces *> sqlQuotedString)
+			<|> do InlineComment <$> (string "COMMENT" *> spaces *> sqlQuotedString)
 			<|> (string "AUTO_INCREMENT" >> return AutoIncrement)
-			<|> (string "PRIMARY KEY" >> return PrimaryKey')
-			<|> (string "UNIQUE" >> return Unique')
-			<|> (string "unsigned" >> return Unsigned)
+			<|> (string "PRIMARY KEY" >> return InlinePrimaryKey)
+			<|> (string "UNIQUE" >> return InlineUnique)
 			<|> do CharSet <$> (string "CHARACTER SET" *> spaces *> oneToken)
 			<|> do Collate <$> (string "COLLATE" *> spaces *> oneToken)
 			<|> do OnUpdate <$> (string "ON UPDATE" *> spaces *> expression)
 
-columnType :: Parser Type
-columnType = complex <|> simple
+columnType :: Parser Scalar
+columnType = knownColumnType <|> fmap Unknown unknownColumnType
+
+knownColumnType :: Parser Scalar
+knownColumnType = do
+	x <- unquotedToken
+	case x of
+		-- Text
+		"TINYTEXT" -> return $ Text 1
+		"TEXT" -> return $ Text 2
+		"MEDIUMTEXT" -> return $ Text 3
+		"LONGTEXT" -> return $ Text 4
+		"VARCHAR" -> Varchar <$> simplePrecision
+		"CHAR" -> Char <$> simplePrecision
+
+		-- Integer
+		"TINYINT" -> Integer 1 <$> intAttributes
+		"SMALLINT" -> Integer 2 <$> intAttributes
+		"MEDIUMINT" -> Integer 3 <$> intAttributes
+		"INT" -> Integer 4 <$> intAttributes
+		"BIGINT" -> Integer 8 <$> intAttributes
+
+		-- Numeric
+		"FLOAT" -> Float <$> (maybeMatch precisePrecision *> signed)
+		"DOUBLE" -> Double <$> (maybeMatch precisePrecision *> signed)
+		"NUMERIC" -> Numeric <$> precisePrecision <*> signed
+
+		-- Date
+		"DATE" -> return Date
+		"TIME" -> return Time
+		"DATETIME" -> return Timestamp
+		"TIMESTAMP" -> return Timestamp
+
+		-- Binary
+		"TINYBLOB" -> return $ Blob 1
+		"BLOB" -> return $ Blob 2
+		"MEDIUMBLOB" -> return $ Blob 3
+		"LONGBLOB" -> return $ Blob 4
+		"BIT" -> Bit <$> simplePrecision
+
+		_ -> fail "Known column type"
+	where
+		-- the precision value is purely for formatting/display purposes, so ignore it
+		intAttributes = (maybeMatch simplePrecision) *> signed
+		signed = (spaces *> string "unsigned" *> pure False) <|> pure True
+		simplePrecision = string "(" *> int <* string ")"
+		precisePrecision = do
+			string "("
+			x <- int
+			string ","
+			y <- int
+			string ")"
+			return (x, y)
+
+unknownColumnType :: Parser BS.ByteString
+unknownColumnType = complex <|> simple
 	where
 		-- matches types with parentheses: VARCHAR(10), ENUM('foo', 'bar')
 		complex = unquotedToken <++> string "(" <++> takeTill (is ')') <++> string ")"
 		-- TODO: add support for nested arrays
-		array = unquotedToken <++> string "[" <++> takeTill (is ']') <++> string "]"
+		--array = unquotedToken <++> string "[" <++> takeTill (is ']') <++> string "]"
 		-- matches simple types:  INT, TEXT, INET
 		simple = unquotedToken

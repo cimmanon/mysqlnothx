@@ -3,8 +3,8 @@
 module Output where
 
 --import Control.Monad.Reader
-import Data.List (partition)
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.List (find, partition)
+import Data.Maybe (listToMaybe, mapMaybe, isJust)
 import Data.Monoid ((<>))
 import qualified Data.ByteString as BS hiding (pack, cons, snoc, singleton, replicate)
 import qualified Data.ByteString.Char8 as BS (pack, cons, snoc, singleton, replicate)
@@ -26,21 +26,6 @@ General flow
 #5 & #6 needs to come at the end so that we have a faster import
 FK constraints need to be done after the unique constraints are in place
 -}
-
-data Params = Params
-	{ quoteIdentifier :: BS.ByteString -> BS.ByteString
-	, quoteString :: BS.ByteString -> BS.ByteString
-	, createTableColumnAttributes :: ColumnAttribute -> Bool
-	, columnAttributetoText :: ColumnAttribute -> BS.ByteString
-	}
-
-defaultParams :: Params
-defaultParams = Params
-	{ quoteIdentifier = quoteIdentifier' '"'
-	, quoteString = quoteString' '\'' '\''
-	, createTableColumnAttributes = defaultCreateTableColumnAttributes
-	, columnAttributetoText = defaultColumnAttributetoText
-	}
 
 {-
 type Printer = Reader Params
@@ -76,232 +61,24 @@ to compose them together as necessary for DB specific output
 doNotOutput :: Construct -> BS.ByteString
 doNotOutput _ = ""
 
---------------------------------------------------------------------- | Table
-
-{-
-CREATE TABLE (
-	[columns]
-);
--}
-tableToText :: Construct -> BS.ByteString
-tableToText (Table n b) | not (null justColumns) =
-	BS.concat
-		[ "CREATE TABLE "
-		, constructIdentifierToText n
-		, " (\n\t"
-		, flattenColumns
-		, "\n);\n"
-		]
-	where
-		justColumns = filter isColumn b
-		flattenColumns = BS.intercalate ",\n\t" $ map columnToText justColumns
-
---------------------------------------------------------------------- | Comment
-
-{-
-COMMENT ON [construct type] IS [comment];
--}
-commentToText :: Construct -> BS.ByteString
-commentToText (Comment t n c) =
-	BS.concat
-		[ "COMMENT ON "
-		, t
-		, " "
-		, constructIdentifierToText n
-		, " IS "
-		, (quoteString defaultParams) c
-		,  ";\n"
-		]
-
---------------------------------------------------------------------- | Sequence
-
--- TODO: move this to the Postgresql module
-
-{-
-CREATE SEQUENCE [identifier] START [] INCREMENT [increment amount];
-ALTER SEQUENCE [identifier] OWNED BY [table identifier];
-ALTER TABLE [] ALTER COLUMN [table identifier] SET DEFAULT NEXTVAL('[current count]');
--}
-sequenceToText :: Construct -> BS.ByteString
-sequenceToText (Sequence n s i o) =
-	"CREATE SEQUENCE " <> (quoteIdentifier defaultParams) n
-	<> " START " <> (toText s) <> " INCREMENT " <> toText i <> ";\n"
-	<> maybe "" (\ ownerIdentifier ->
-		let
-			(ConstructIdentifier ident) = ownerIdentifier
-		in
-			"ALTER SEQUENCE " <> (quoteIdentifier defaultParams) n
-			<> " OWNED BY " <> constructIdentifierToText ownerIdentifier <> ";\n"
-			<> "ALTER TABLE " <> constructIdentifierToText (ConstructIdentifier $ init ident)
-			<> " ALTER COLUMN " <> ((quoteIdentifier defaultParams) (last ident)) <> " SET DEFAULT NEXTVAL('"
-			<> n <> "');\n"
-		) o
-	where
-		toText = BS.pack . show
-
---------------------------------------------------------------------- | Constraint
-
-{-
-ALTER TABLE [table identifier] ADD [constraint information];
--}
-constraintToText :: Construct -> BS.ByteString
-constraintToText (Table name body) =
-	BS.concat $ map toText justColumns
-	where
-		justColumns = filter isConstraint body
-		toText (Constraint name' info) =
-			BS.concat
-			[ "ALTER TABLE "
-			, constructIdentifierToText name
-			, " ADD "
-			, maybe "" (\x -> BS.concat ["CONSTRAINT ", x, " "]) name'
-			, theRest info
-			, ";\n"
-			]
-		theRest t =
-			case t of
-				-- TODO: quote the identifiers here
-				PrimaryKey cols -> "PRIMARY KEY (" <> toCSV' cols <> ")"
-				Unique cols -> "UNIQUE (" <> toCSV' cols <> ")"
-				ForeignKey cols (ref, refCols) onDelete onUpdate ->
-					"FOREIGN KEY (" <> toCSV' cols
-					<> ") REFERENCES " <> constructIdentifierToText ref <> " (" <> toCSV' refCols <> ")"
-				_ -> "Not implemented"
-		toCSV' = toCSV . (map (quoteIdentifier defaultParams))
-
---------------------------------------------------------------------- | Indexes
-
-{-
-CREATE INDEX [index name] ON [table name] USING [index type] ([column identifiers]);
--}
-indexToText :: Construct -> BS.ByteString
-indexToText (Table name body) =
-	BS.concat $ map toText $ filter isIndex body
-	where
-		toText (Index n cs x) =
-			BS.concat
-				[ "CREATE INDEX "
-				, maybe "" (quoteIdentifier defaultParams) n
-				, " ON "
-				, constructIdentifierToText name
-				, maybe "" (" USING " <> ) x
-				, " ("
-				, BS.intercalate ", " (map colToText cs)
-				, ");\n"
-				]
-		-- TODO: quoting was removed on `n` because it is now an expression.
-		-- We need to add it back in where appropriate, but that requires
-		-- significant change to the parser.
-		colToText (n, x) = (quoteIdentifier defaultParams) n <> maybe "" (" " <> ) x
-
 {----------------------------------------------------------------------------------------------------{
-																	  | Types
-}----------------------------------------------------------------------------------------------------}
-
-
-
-{----------------------------------------------------------------------------------------------------{
-																	  | Functions
-}----------------------------------------------------------------------------------------------------}
-
-
-
-{----------------------------------------------------------------------------------------------------{
-																	  | Tables
-}----------------------------------------------------------------------------------------------------}
-
---------------------------------------------------------------------- | Columns
-
-columnToText :: TableAttribute -> BS.ByteString
-columnToText (Column n t attrs) =
-	BS.intercalate " " [ (quoteIdentifier defaultParams) n, t, columnAttributesToText attrs ]
-
-columnAttributesToText :: [ColumnAttribute] -> BS.ByteString
-columnAttributesToText =
-	BS.intercalate " " . map (columnAttributetoText defaultParams) . filter (createTableColumnAttributes defaultParams)
-
--- Determines whether or not a given ColumnAttribute is generated as part of the `CREATE TABLE` statement
-defaultCreateTableColumnAttributes :: ColumnAttribute -> Bool
-defaultCreateTableColumnAttributes x = case x of
-	Nullable False -> True
-	Default "NULL" -> False
-	Default "''" -> False -- empty strings
-	Default _ -> True
-	Collate _ -> False
-	-- ^^ TODO: reenable this after we remap the collation information between databases
-	_ -> False
-
--- Determines how the ColumnAttribute is generated for the `CREATE TABLE` statement
-defaultColumnAttributetoText :: ColumnAttribute -> BS.ByteString
-defaultColumnAttributetoText x = case x of
-	Nullable False -> "NOT NULL"
-	Nullable True -> "NULL"
-	PrimaryKey' -> "PRIMARY KEY"
-	Unique' -> "UNIQUE"
-	Default expr -> "DEFAULT " <> expr
-	-- ^^ TODO: fix this to handle expressions correctly
-	Comment' t -> "COMMENT " <> (quoteString defaultParams) t
-	Collate i -> "COLLATE " <> i
-	-- MySQLisms
-	Unsigned -> "UNSIGNED"
-	AutoIncrement -> "AUTO_INCREMENT"
-	CharSet i -> "CHARSET " <> i
-	OnUpdate expr -> "ON UPDATE " <> expr
-
---------------------------------------------------------------------- | Comments
-
-{-
-COMMENT ON ConstructType ConstructIdentifier IS Text
-
-COMMENT ON COLUMN my_table.my_column IS 'Employee ID number';
-COMMENT ON TABLE my_schema.my_table IS 'Employee Information';
-COMMENT ON FUNCTION my_function (timestamp) IS 'Returns Roman Numeral';
-COMMENT ON CONSTRAINT bar_col_cons ON bar IS 'Constrains column col';
--}
-
-comment :: BS.ByteString -> ConstructIdentifier -> BS.ByteString -> BS.ByteString
---comment objType objName c = "COMMENT ON " <> objType <> " " <> (quoteIdentifier defaultParams) objName <> " " <>  (quoteString defaultParams) c <> ";"
-comment objType objName c =
-	BS.concat
-		[ "/* COMMENT ON "
-		, objType
-		, " "
-		, constructIdentifierToText objName
-		, " "
-		, (quoteString defaultParams) c
-		, "; */"
-		]
-
-{----------------------------------------------------------------------------------------------------{
-																	  | Inserts
-}----------------------------------------------------------------------------------------------------}
-
-
-
-{----------------------------------------------------------------------------------------------------{
-																	  | Indexes, Constraints, etc.
-}----------------------------------------------------------------------------------------------------}
-
-{----------------------------------------------------------------------------------------------------{
-																	  | Helper Functions
+                                                                      | Helper Functions
 }----------------------------------------------------------------------------------------------------}
 
 removeEmpties :: [BS.ByteString] -> [BS.ByteString]
 removeEmpties = filter (/= "")
 
-quoteIdentifier' :: Char -> BS.ByteString -> BS.ByteString
-quoteIdentifier' quoteChar x = BS.cons quoteChar $ BS.snoc x quoteChar
+quoteIdentifier :: Char -> BS.ByteString -> BS.ByteString
+quoteIdentifier quoteChar x = BS.cons quoteChar $ BS.snoc x quoteChar
 
-quoteString' :: Char -> Char -> BS.ByteString -> BS.ByteString
-quoteString' quoteChar escapeChar =
-	quoteIdentifier' quoteChar . BS.toStrict . BS.replace (BS.singleton quoteChar) (BS.pack [quoteChar, escapeChar])
+quoteString :: Char -> Char -> BS.ByteString -> BS.ByteString
+quoteString quoteChar escapeChar =
+	quoteIdentifier quoteChar . BS.toStrict . BS.replace (BS.singleton quoteChar) (BS.pack [quoteChar, escapeChar])
 
 toCSV :: [BS.ByteString] -> BS.ByteString
 toCSV = BS.intercalate ", "
 
-constructIdentifierToText :: ConstructIdentifier -> BS.ByteString
-constructIdentifierToText (ConstructIdentifier xs) = BS.intercalate "." $ map (quoteIdentifier defaultParams) xs
-
+-- not used
 extractFromList :: (a -> Bool) -> [a] -> (Maybe a, [a])
 extractFromList f xs =
 	let (x, rest) = partition f xs
@@ -329,3 +106,22 @@ partitionConstraints xs =
 			let (fk, rest) = partition isForeignKey $ filter isConstraint cx
 			in Just (Table n fk, Table n rest)
 		justConstraints _ = Nothing
+
+{-
+There are 2 instances where a constraint would be considered imaginary:
+
+* The table doesn't exist
+* The table exists, but the columns don't have a unique constraint on them
+
+Both are valid in MySQL, but invalid elsewhere
+-}
+
+isRealConstraint :: [Construct] -> TableAttribute -> Bool
+isRealConstraint xs (Constraint _ (ForeignKey _ (t, cols) _ _)) =
+	let
+		isUniqueConstraint (Constraint _ (Unique cs)) = cs == cols
+		isUniqueConstraint (Constraint _ (PrimaryKey cs)) = cs == cols
+		isUniqueConstraint _ = False
+	in
+		isJust $ find (\ x -> t == name x && not (null $ filter isUniqueConstraint $ body x)) xs
+isRealConstraint _ _ = False

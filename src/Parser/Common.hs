@@ -7,11 +7,15 @@ import Data.Monoid ((<>), mappend, Monoid)
 import Control.Applicative
 
 import Prelude hiding (concat, takeWhile)
+import Control.Monad.Trans.State
 import Data.Attoparsec.ByteString
 import qualified Data.ByteString as BS
 import Data.ByteString.Internal (isSpaceWord8, c2w)
+import qualified Data.ByteString.Char8 as BSC (unpack)
 
 import Data.Construct
+
+type StatefulParser a = StateT ParserState Parser a
 
 -- shortcut operator for mappending the results of parsers
 (<++>) :: (Monoid a) => Parser a -> Parser a -> Parser a
@@ -53,6 +57,11 @@ csv :: Parser a -> Parser [a]
 csv x = x `sepBy1` (skipSpace *> string "," <* skipSpace) <?> "comma delimited list"
 
 ---------------------------------------------------------------------- | Tokens
+
+int :: Parser Int
+int = do
+	x <- takeWhile1 (`elem8` "0123456789")
+	return $ read $ BSC.unpack x
 
 elem8 :: Word8 -> [Char] -> Bool
 elem8 x xs = elem x $ map c2w xs
@@ -127,7 +136,7 @@ expression = skipSpace *> (complexExpression <|> simpleExpression)
 			, operator <* spaces
 			, expression
 			]
-		function = unquotedToken <++> string "(" <++> (BS.intercalate ", " <$> expression `sepBy` string ",") <++> string ")"
+		function = BS.concat <$> sequence [ unquotedToken, string "(", (BS.intercalate ", " <$> expression `sepBy` string ","), string ")" ]
 		oneToken' = binaryToken <|> unquotedToken <|> sqlQuotedString' <|> mysqlQuotedIdentifier <|> sqlQuotedIdentifier
 
 operator :: Parser BS.ByteString
