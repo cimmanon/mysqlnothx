@@ -14,7 +14,7 @@ import System.Exit (ExitCode (..), exitSuccess, exitFailure)
 import System.IO (hPutStrLn, stderr)
 
 -- Pipes
-import Pipes as P (runEffect, for, liftIO, Producer, Effect)
+import Pipes (runEffect, for, liftIO, Producer, Effect)
 import Pipes.Attoparsec (parsed, ParsingError)
 import Pipes.Lift (runStateP)
 import Pipes.Safe (runSafeT)
@@ -62,8 +62,9 @@ theStuff = for runParser (liftIO . BS.putStrLn <=< lift . processCommand)
 
 runParser :: MonadIO m => Producer Command (StateT ParserState m) (Either (ParsingError, Producer ByteString (StateT ParserState m) ()) ())
 runParser = do
-	xs <- constructs <$> lift get
-	parsed (dump'' xs) PBS.stdin
+	s <- lift get
+	-- TODO: figure out how to get the return state out to pass it back into the parent monad's state
+	parsed (evalStateT dump s) PBS.stdin
 
 processCommand :: Monad m => Command -> StateT ParserState m ByteString
 processCommand (Create xs) = do

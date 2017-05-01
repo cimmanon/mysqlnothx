@@ -7,7 +7,7 @@ import Data.Monoid ((<>), mappend, Monoid)
 import Control.Applicative
 
 import Prelude hiding (concat, takeWhile)
-import Control.Monad.Trans.State
+import Control.Monad.Trans.State.Strict
 import Data.Attoparsec.ByteString
 import qualified Data.ByteString as BS
 import Data.ByteString.Internal (isSpaceWord8, c2w)

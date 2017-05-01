@@ -3,11 +3,11 @@
 module Data.Construct where
 
 import Data.List (find)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, mapMaybe)
 import Data.ByteString (ByteString)
 
 {----------------------------------------------------------------------------------------------------{
-																																			| Types
+                                                                      | Types
 }----------------------------------------------------------------------------------------------------}
 
 -- Identifiers are for names (tables, columns, foreign keys, etc.)
@@ -28,7 +28,7 @@ data ConstructIdentifier = ConstructIdentifier [Identifier] deriving (Show, Eq, 
 appendIdentifier :: ConstructIdentifier -> Identifier -> ConstructIdentifier
 appendIdentifier (ConstructIdentifier xs) x = ConstructIdentifier $ xs ++ [x]
 
-newtype ParserState = ParserState { constructs :: [Construct] }
+newtype ParserState = ParserState { constructs :: [Construct] } deriving (Show)
 
 defaultParserState :: ParserState
 defaultParserState = ParserState []
@@ -80,6 +80,12 @@ isConstraint _ = False
 isIndex :: TableAttribute -> Bool
 isIndex (Index {}) = True
 isIndex _ = False
+
+columnTypes :: [TableAttribute] -> [Scalar]
+columnTypes = mapMaybe getType
+	where
+		getType (Column _ s _) = Just s
+		getType _ = Nothing
 
 {----------------------------------------------------------------------------------------------------{
                                                                       | Columns

@@ -20,34 +20,18 @@ import Parser.Data
                                                                       | Type
 }----------------------------------------------------------------------------------------------------}
 
-import Control.Monad.Trans.State
+import Control.Monad.Trans.State.Strict
 import Control.Monad.Trans.Class (lift)
 
 {----------------------------------------------------------------------------------------------------{
                                                                       | Main Parser
 }----------------------------------------------------------------------------------------------------}
 
-dump :: Parser (Either [Construct] BS.ByteString)
-dump = fmap Left createStatements <|> fmap Right justData
+dump :: StatefulParser Command
+dump = fmap Create createStatements <|> fmap Insert justData
 
-dump'' :: [Construct] -> Parser Command
-dump'' currentConstructs = fmap Create createStatements <|> fmap Insert justData
-
-dump' :: (Construct -> BS.ByteString) -> (BS.ByteString -> BS.ByteString) -> StatefulParser BS.ByteString
-dump' formatConstruct formatData =
-    fmap (BS.intercalate "\n\n" . map formatConstruct) createStatements'
-	<|> lift (fmap formatData justData)
-
-createStatements :: Parser [Construct]
-createStatements = regroupTables <$> do
-	skipMany skipStatements
-	many1 statement
-	<?> "statements"
-	where
-		statement = catchStatements <* skipMany skipStatements
-
-createStatements' :: StatefulParser [Construct]
-createStatements' = do
+createStatements :: StatefulParser [Construct]
+createStatements = do
 	statements <- lift collectStatements
 	currentState <- get
 	_ <- put (currentState { constructs = statements ++ (constructs currentState)})
@@ -85,5 +69,5 @@ regroupTables = reduce . regroup
 		reduce = map (foldl1 (\ (Table n x) (Table _ y) -> Table n $ x ++ y))
 
 -- handles the insert statements by converting them to the COPY command
-justData :: Parser BS.ByteString
-justData = (<>) "\n\n" <$> (skipMany skipStatements *> insertToCopy <* skipMany skipStatements)
+justData :: StatefulParser BS.ByteString
+justData = lift (skipMany skipStatements) *> insertToCopy <* lift (skipMany skipStatements)
