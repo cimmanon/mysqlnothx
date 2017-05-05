@@ -16,7 +16,7 @@ CREATE TABLE "indexes" (
 	"id" INTEGER,
 	"name" VARCHAR(50),
 	"nickname" VARCHAR(50),
-	"one" Text,
+	"one" TEXT,
 	"two" VARCHAR(100)
 );
 
@@ -56,7 +56,7 @@ CREATE TABLE "quoted_identifiers" (
 
 CREATE TABLE "reference_table" (
 	"id" INTEGER,
-	"name" text NOT NULL,
+	"name" TEXT NOT NULL,
 	"not_unique_column" VARCHAR(50) NOT NULL
 );
 
@@ -85,7 +85,7 @@ CREATE TABLE "types" (
 	"test_tinyblob" BYTEA,
 	"test_mediumblob" BYTEA,
 	"test_longblob" BYTEA,
-	"test_bit" bit(1) NOT NULL,
+	"test_bit" BIT(1) NOT NULL,
 	"test_timestamp" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	"test_timestamp_zero_default" TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00',
 	"test_datetime" TIMESTAMP,
@@ -94,7 +94,6 @@ CREATE TABLE "types" (
 	"test_enum" ENUM('chocolate', 'vanilla'),
 	"test_set" SET('cat', 'dog', 'doge', 'other')
 );
-
 
 
 COPY "indexes" FROM stdin;
@@ -108,9 +107,8 @@ COPY "indexes" FROM stdin;
 ----------------------------------------
 
 CREATE TABLE "binary_test" (
-	"test_bit" bit(1) NOT NULL
+	"test_bit" BIT(1) NOT NULL
 );
-
 
 
 COPY "binary_test" FROM stdin;
@@ -126,7 +124,6 @@ CREATE TABLE "blob_test" (
 	"id" INTEGER NOT NULL,
 	"data" BYTEA NOT NULL
 );
-
 
 
 COPY "blob_test" FROM stdin;

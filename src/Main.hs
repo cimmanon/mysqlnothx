@@ -42,7 +42,7 @@ main = do
 	(r, (ParserState xs)) <- runSafeT $ runEffect doStuff
 
 	-- create our indexes/constraints at the very end
---	BS.putStrLn $ P.secondPass xs
+	BS.putStrLn $ P.secondPass xs
 --	putStrLn "ROLLBACK;\n"
 
 	-- cleanup by sending a proper exit code

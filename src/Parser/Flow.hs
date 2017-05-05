@@ -28,7 +28,12 @@ import Control.Monad.Trans.Class (lift)
 }----------------------------------------------------------------------------------------------------}
 
 dump :: StatefulParser Command
-dump = createStatements *> fmap Insert justData
+dump = lift skipSpace *> (createAndInsert <|> insert)
+	where
+		insert = fmap Insert justData
+		createAndInsert = do
+			s <- createStatements
+			insert <|> return (Create s)
 
 createStatements :: StatefulParser [Construct]
 createStatements = do
