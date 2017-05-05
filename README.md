@@ -24,3 +24,10 @@ TODO: write this part
 In addition to porting these column types to their closest compatible PostgreSQL data type, it has fixes for the following cases:
 
 * CHAR(0) and VARCHAR(0) converts to CHAR(1)
+
+# TODO
+
+List of features I'd like to add.
+
+* Addressing time zone differences between source and destination (not sure if this is reasonable)
+* Fixing out of bounds dates (eg. February 31st)

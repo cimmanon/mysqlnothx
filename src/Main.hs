@@ -30,6 +30,8 @@ import Parser.Flow
 
 import qualified Output.PostgreSQL as P
 
+import qualified Data.ByteString as BS (concat)
+
 main :: IO ExitCode
 main = do
 	-- begin our transaction
@@ -40,7 +42,7 @@ main = do
 	(r, (ParserState xs)) <- runSafeT $ runEffect doStuff
 
 	-- create our indexes/constraints at the very end
-	BS.putStrLn $ P.secondPass xs
+--	BS.putStrLn $ P.secondPass xs
 --	putStrLn "ROLLBACK;\n"
 
 	-- cleanup by sending a proper exit code
@@ -60,15 +62,33 @@ doStuff = runStateP defaultParserState theStuff
 theStuff :: MonadIO m => Effect (StateT ParserState m) (Either (ParsingError, Producer ByteString (StateT ParserState m) ()) ())
 theStuff = for runParser (liftIO . BS.putStrLn <=< lift . processCommand)
 
+{-
 runParser :: MonadIO m => Producer Command (StateT ParserState m) (Either (ParsingError, Producer ByteString (StateT ParserState m) ()) ())
 runParser = do
 	s <- lift get
 	-- TODO: figure out how to get the return state out to pass it back into the parent monad's state
 	parsed (evalStateT dump s) PBS.stdin
+-}
+runParser :: MonadIO m => Producer (Command, ParserState) (StateT ParserState m) (Either (ParsingError, Producer ByteString (StateT ParserState m) ()) ())
+runParser = do
+	s <- lift get
+	-- TODO: figure out how to get the return state out to pass it back into the parent monad's state
+	parsed (runStateT dump s) PBS.stdin
 
+{-
 processCommand :: Monad m => Command -> StateT ParserState m ByteString
 processCommand (Create xs) = do
 	currentState <- get
 	_ <- put (currentState { constructs = xs ++ (constructs currentState)})
 	return $ P.firstPass $ P.transformConstructs xs
 processCommand (Insert x) = return x
+-}
+processCommand :: Monad m => (Command, ParserState) -> StateT ParserState m ByteString
+processCommand (Create _, ParserState xs') = do
+	currentState <- get
+	_ <- put (currentState { constructs = xs' ++ (constructs currentState)})
+	return $ P.firstPass $ P.transformConstructs xs'
+processCommand (Insert x, ParserState xs) = do
+	currentState <- get
+	_ <- put (currentState { constructs = xs ++ (constructs currentState)})
+	return $ BS.concat [ P.firstPass $ P.transformConstructs xs, "\n\n", x ]

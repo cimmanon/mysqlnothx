@@ -8,6 +8,8 @@ import Control.Applicative
 import Prelude hiding (concat, takeWhile)
 import Data.Attoparsec.ByteString
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC (unpack)
+import Data.Char (toUpper)
 
 import Data.Construct
 import Parser.Common
@@ -209,7 +211,7 @@ columnType = knownColumnType <|> fmap Unknown unknownColumnType
 knownColumnType :: Parser Scalar
 knownColumnType = do
 	x <- unquotedToken
-	case x of
+	case map toUpper (BSC.unpack x) of
 		-- Text
 		"TINYTEXT" -> return $ Text 1
 		"TEXT" -> return $ Text 2
@@ -223,6 +225,7 @@ knownColumnType = do
 		"SMALLINT" -> Integer 2 <$> intAttributes
 		"MEDIUMINT" -> Integer 3 <$> intAttributes
 		"INT" -> Integer 4 <$> intAttributes
+		"INTEGER" -> Integer 4 <$> intAttributes
 		"BIGINT" -> Integer 8 <$> intAttributes
 
 		-- Numeric
@@ -243,7 +246,7 @@ knownColumnType = do
 		"LONGBLOB" -> return $ Blob 4
 		"BIT" -> Bit <$> simplePrecision
 
-		_ -> fail "Known column type"
+		_ -> fail "Unknown column type"
 	where
 		-- the precision value is purely for formatting/display purposes, so ignore it
 		intAttributes = (maybeMatch simplePrecision) *> signed
@@ -252,7 +255,7 @@ knownColumnType = do
 		precisePrecision = do
 			string "("
 			x <- int
-			string ","
+			comma
 			y <- int
 			string ")"
 			return (x, y)

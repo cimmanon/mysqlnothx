@@ -28,7 +28,7 @@ import Control.Monad.Trans.Class (lift)
 }----------------------------------------------------------------------------------------------------}
 
 dump :: StatefulParser Command
-dump = fmap Create createStatements <|> fmap Insert justData
+dump = createStatements *> fmap Insert justData
 
 createStatements :: StatefulParser [Construct]
 createStatements = do

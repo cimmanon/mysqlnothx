@@ -50,11 +50,23 @@ skipSpace = skipWhile isSpaceWord8
 spaces :: Parser BS.ByteString
 spaces = takeWhile1 isSpaceWord8 >> return " "
 
+comma :: Parser BS.ByteString
+comma = skipSpace *> string "," <* skipSpace
+
+quoted :: Parser BS.ByteString -> Parser BS.ByteString
+quoted p = BS.concat <$> sequence [string "'", p, string "'"]
+
+unquote :: Parser a -> Parser a
+unquote p = string "'" *> p <* string "'"
+
+parenthesed :: Parser a -> Parser a
+parenthesed p = string "(" *> skipSpace *> p <* skipSpace <* string ")"
+
 maybeMatch :: Parser a -> Parser (Maybe a)
 maybeMatch p = (Just <$> p) <|> return Nothing
 
 csv :: Parser a -> Parser [a]
-csv x = x `sepBy1` (skipSpace *> string "," <* skipSpace) <?> "comma delimited list"
+csv x = x `sepBy1` comma <?> "comma delimited list"
 
 ---------------------------------------------------------------------- | Tokens
 
@@ -136,7 +148,7 @@ expression = skipSpace *> (complexExpression <|> simpleExpression)
 			, operator <* spaces
 			, expression
 			]
-		function = BS.concat <$> sequence [ unquotedToken, string "(", (BS.intercalate ", " <$> expression `sepBy` string ","), string ")" ]
+		function = BS.concat <$> sequence [ unquotedToken, string "(", (BS.intercalate ", " <$> expression `sepBy` comma), string ")" ]
 		oneToken' = binaryToken <|> unquotedToken <|> sqlQuotedString' <|> mysqlQuotedIdentifier <|> sqlQuotedIdentifier
 
 operator :: Parser BS.ByteString
