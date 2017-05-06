@@ -77,7 +77,7 @@ CREATE TABLE "types" (
 	"test_char" CHAR(2),
 	"test_varchar" VARCHAR(255) NOT NULL,
 	"test_text" TEXT,
-	"test_text_charset" TEXT COLLATE utf8_bin,
+	"test_text_charset" TEXT,
 	"test_tinytext" TEXT,
 	"test_mediumtext" TEXT,
 	"test_longtext" TEXT,

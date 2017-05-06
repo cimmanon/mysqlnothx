@@ -236,7 +236,8 @@ defaultAttributeToText _ = Nothing
 textAttributeToText :: ColumnAttribute -> Maybe BS.ByteString
 textAttributeToText (Default "''") = Nothing -- Don't allow empty strings by default
 textAttributeToText (Default expr) = Just $ "DEFAULT " <> expr
-textAttributeToText (Collate x) = Just $ "COLLATE " <> x
+textAttributeToText (Collate x) = Nothing -- don't output this until we can translate it properly
+--textAttributeToText (Collate x) = Just $ "COLLATE " <> x
 textAttributeToText x = defaultAttributeToText x
 
 -- dates
