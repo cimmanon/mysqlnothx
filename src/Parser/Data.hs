@@ -84,6 +84,7 @@ unknownTypes = csv value
 			<|> mysqlQuotedString
 			<|> binaryToken'
 			<?> "unknown types"
+		binaryToken' = (string "b'" <|> string "B'") *> takeWhile (`elem8` ['0', '1']) <* string "'"
 		-- ^^ TODO: fix code duplication
 		zeroDateTime = (string "'0000-00-00 00:00:00'" <|> string "'0000-00-00'") >> return "-infinity"
 
@@ -91,7 +92,7 @@ scalarParser :: Scalar -> Parser BS.ByteString
 scalarParser (Text _) = mysqlQuotedString
 scalarParser (Char _) = mysqlQuotedString
 scalarParser (Varchar _) = mysqlQuotedString
-scalarParser (Bit i) = binaryToken' <|> unquote (charToBinary i)
+scalarParser (Bit i) = hexToBinary i <|> unquote (charToBinary i)
 scalarParser (Blob _) = hexToCopy <|> unquote blobToHex
 scalarParser (Numeric _ _) = numericToken
 scalarParser (Float _) = numericToken
@@ -104,9 +105,6 @@ scalarParser (Unknown _) = mysqlQuotedString
 
 sqlNull :: Parser BS.ByteString
 sqlNull = string "NULL" >> return "\\N"
-
-binaryToken' :: Parser BS.ByteString
-binaryToken' = (string "b'" <|> string "B'") *> takeWhile (`elem8` ['0', '1']) <* string "'"
 
 -- insert scathing rant here about how MySQL switches its method of escaping single quotes for inserts
 mysqlQuotedString :: Parser BS.ByteString
@@ -126,12 +124,31 @@ mysqlQuotedString = quote *> (emptyString <|> (insideQuotes <* quote))
 			-- TODO: double check if this is optimal
 			<|> string "\\" -- otherwise just return the slash
 
-hexToCopy :: Parser BS.ByteString
-hexToCopy =
-	(string "0x" *> return "\\\\x") <++> option "" (mconcat <$> many1 (numbers <|> letters))
+{----------------------------------------------------------------------------------------------------{
+                                                                      | Binary (Bit / Blob)
+}----------------------------------------------------------------------------------------------------}
+
+-- convert an Integer to a padded Binary
+intBin :: (Integral a, Show a) => Int -> a -> BS.ByteString
+intBin precision = padStr . word8ToBinary
 	where
-		numbers = takeWhile1 (`elem8` ['0' .. '9'])
-		letters = takeWhile1 (`elem8` "abcdefABCDEF")
+		word8ToBinary w = showIntAtBase 2 intToDigit w ""
+		padding i = BS.concat $ Prelude.take i $ repeat "0"
+		padStr x = padding (precision - length x) <> BSC.pack x
+
+-- This should handle all "characters" that have been escaped and should be
+-- converted to their actual Char value (\n, \r, \\, \0)
+improperlyEscapedChar :: Parser Char
+improperlyEscapedChar = ungraceful <|> graceful
+	where
+		ungraceful = string "\\Z" *> pure (chr 26)
+		graceful = do
+			c <- BS.concat <$> sequence [ string "\\", Data.Attoparsec.ByteString.take 1 ]
+			case readLitChar (BSC.unpack c) of
+				(x : _) -> return $ fst x
+				_ -> fail $ "readLitChar failed to parse " <> BSC.unpack c
+
+---------------------------------------------------------------------- | Default format
 
 {-
 When MySQL dumps a binary value, it will come out in one of two formats:
@@ -146,16 +163,9 @@ precision for the column.
 charToBinary :: Int -> Parser BS.ByteString
 charToBinary precision = leadingSlash <|> rest
 	where
-		leadingSlash = padStr . word8ToBinary . ord <$> improperlyEscapedChar
-		rest = do
-			binary <- word8ToBinary <$> anyWord8
-			return $ padStr binary
-		padding i = BS.concat $ Prelude.take i $ repeat "0"
-
-		--word8ToBinary :: (Integral a, Show a) => a -> String
-		word8ToBinary w = showIntAtBase 2 intToDigit w ""
-
-		padStr x = padding (precision - length x) <> BSC.pack x
+		leadingSlash = toBin . ord <$> improperlyEscapedChar
+		rest = toBin <$> anyWord8
+		toBin x = intBin precision x
 
 blobToHex :: Parser BS.ByteString
 blobToHex = (mappend "\\\\x") <$> mconcat <$> many1 (chars <|> specialChar)
@@ -169,14 +179,25 @@ blobToHex = (mappend "\\\\x") <$> mconcat <$> many1 (chars <|> specialChar)
 		specialChar = BSC.pack . word8ToHex . ord <$> improperlyEscapedChar
 		bsToHex = BSC.pack . concat . map word8ToHex . BS.unpack
 
--- This should handle all "characters" that have been escaped and should be
--- converted to their actual Char value (\n, \r, \\, \0)
-improperlyEscapedChar :: Parser Char
-improperlyEscapedChar = ungraceful <|> graceful
+---------------------------------------------------------------------- | With --hex-blob flag
+
+{-
+If you dump using the `--hex-blob` flag, it converts all BIT and BLOB values to
+unquoted hexadecimal values.
+-}
+hex :: Parser BS.ByteString
+hex =
+	mconcat <$> many1 (numbers <|> letters)
 	where
-		ungraceful = string "\\Z" *> pure (chr 26)
-		graceful = do
-			c <- BS.concat <$> sequence [ string "\\", Data.Attoparsec.ByteString.take 1 ]
-			case readLitChar (BSC.unpack c) of
-				(x : _) -> return $ fst x
-				_ -> fail $ "readLitChar failed to parse " <> BSC.unpack c
+		numbers = takeWhile1 (`elem8` ['0' .. '9'])
+		letters = takeWhile1 (`elem8` "abcdefABCDEF")
+
+hexToCopy :: Parser BS.ByteString
+hexToCopy =
+	(string "0x" *> return "\\\\x") <++> option "" hex
+
+hexToBinary :: Int -> Parser BS.ByteString
+hexToBinary precision = intBin precision <$> hexInt
+	where
+		hexInt :: Parser Int
+		hexInt = read . BSC.unpack . BS.concat <$> sequence [string "0x", hex]

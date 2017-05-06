@@ -110,6 +110,11 @@ CREATE TABLE "binary_test" (
 	"test_bit" BIT(1) NOT NULL
 );
 
+----------------------------------------
+-- Tables
+----------------------------------------
+
+
 
 COPY "binary_test" FROM stdin;
 0
