@@ -212,7 +212,9 @@ columnToText (Column n t attrs) = format $ quoteIdentifier n : definition
 
 			Date -> "DATE" : dateAttributes
 			Time -> "TIME" : timestampAttributes
-			Timestamp -> "TIMESTAMP" : timestampAttributes
+			DateTime -> "TIMESTAMP" : timestampAttributes
+			Timestamp -> "TIMESTAMPTZ" : timestampAttributes
+			-- ^ TODO: evaluate the correctness of using TIMESTAMPTZ for a MySQL TIMESTAMP
 
 			Unknown x -> x : defaultAttributes
 

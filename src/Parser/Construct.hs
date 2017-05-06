@@ -236,7 +236,7 @@ knownColumnType = do
 		-- Date
 		"DATE" -> return Date
 		"TIME" -> return Time
-		"DATETIME" -> return Timestamp
+		"DATETIME" -> return DateTime
 		"TIMESTAMP" -> return Timestamp
 
 		-- Binary

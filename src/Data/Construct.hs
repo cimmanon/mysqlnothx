@@ -105,9 +105,10 @@ data Scalar =
 	| Float Signed -- 4 bytes
 	| Double Signed -- 8 bytes
 	| Integer Bytes Signed
-	| Timestamp
-	| Time
 	| Date
+	| Time
+	| DateTime
+	| Timestamp
 	| Unknown ByteString
 	deriving (Show, Eq, Ord)
 	-- TODO: Set, Enum

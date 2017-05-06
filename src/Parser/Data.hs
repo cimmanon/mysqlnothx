@@ -86,7 +86,6 @@ unknownTypes = csv value
 			<?> "unknown types"
 		binaryToken' = (string "b'" <|> string "B'") *> takeWhile (`elem8` ['0', '1']) <* string "'"
 		-- ^^ TODO: fix code duplication
-		zeroDateTime = (string "'0000-00-00 00:00:00'" <|> string "'0000-00-00'") >> return "-infinity"
 
 scalarParser :: Scalar -> Parser BS.ByteString
 scalarParser (Text _) = mysqlQuotedString
@@ -98,8 +97,10 @@ scalarParser (Numeric _ _) = numericToken
 scalarParser (Float _) = numericToken
 scalarParser (Double _) = numericToken
 scalarParser (Integer _ _) = numericToken
-scalarParser (Timestamp) = mysqlQuotedString
+scalarParser (Date) = date
 scalarParser (Time) = mysqlQuotedString
+scalarParser (DateTime) = dateTime
+scalarParser (Timestamp) = timestamp
 scalarParser (Date) = mysqlQuotedString
 scalarParser (Unknown _) = mysqlQuotedString
 
@@ -123,6 +124,22 @@ mysqlQuotedString = quote *> (emptyString <|> (insideQuotes <* quote))
 			<|> (string "\\\\" >> return "\\\\") -- preserve escaping on backslashes
 			-- TODO: double check if this is optimal
 			<|> string "\\" -- otherwise just return the slash
+
+{----------------------------------------------------------------------------------------------------{
+                                                                      | Dates / Times
+}----------------------------------------------------------------------------------------------------}
+
+zeroDateTime :: Parser BS.ByteString
+zeroDateTime = (string "'0000-00-00 00:00:00'" <|> string "'0000-00-00'") >> return "-infinity"
+
+date :: Parser BS.ByteString
+date = zeroDateTime <|> mysqlQuotedString
+
+dateTime :: Parser BS.ByteString
+dateTime = zeroDateTime <|> mysqlQuotedString
+
+timestamp :: Parser BS.ByteString
+timestamp = zeroDateTime <|> mysqlQuotedString
 
 {----------------------------------------------------------------------------------------------------{
                                                                       | Binary (Bit / Blob)
