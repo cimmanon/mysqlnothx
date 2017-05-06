@@ -195,6 +195,9 @@ columnToText (Column n t attrs) = format $ quoteIdentifier n : definition
 			Char i -> simplePrecision "CHAR" i : textAttributes
 			Varchar i ->  simplePrecision "VARCHAR" i : textAttributes
 
+			Enum xs -> "TEXT" : BS.concat ["CONSTRAINT ", constraintName, " CHECK (", quoteIdentifier n, " = any(", arrayFormat xs, "))" ] : defaultAttributes
+			Set xs -> "TEXT[]" : BS.concat ["CONSTRAINT ", constraintName, " CHECK (", quoteIdentifier n, " <@ ", arrayFormat xs, ")" ] : defaultAttributes
+
 			Bit i -> simplePrecision "BIT" i : defaultAttributes
 			Blob _ -> "BYTEA" : defaultAttributes
 
@@ -224,6 +227,9 @@ columnToText (Column n t attrs) = format $ quoteIdentifier n : definition
 		textAttributes = mapMaybe textAttributeToText attrs
 		dateAttributes = mapMaybe dateAttributeToText attrs
 		timestampAttributes = mapMaybe timestampAttributeToText attrs
+
+		constraintName = quoteIdentifier $ BS.concat [ n, "_allowed_values_ck" ]
+		arrayFormat xs = BS.concat $ [ "ARRAY[", BS.intercalate "," xs, "]" ]
 columnToText _ = ""
 
 ---------------------------------------------------------------------- | Attributes for specific column types

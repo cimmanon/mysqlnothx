@@ -17,6 +17,8 @@ TODO: write this part
 * Text (tiny, medium, large)
 * Char
 * Varchar
+* Enum (partial)
+* Set (partial)
 * Date
 * Time
 * Datetime
@@ -36,6 +38,5 @@ In addition to porting these column types to their closest compatible PostgreSQL
 
 List of features I'd like to add.
 
-* Support for Set and Enum types
 * Addressing time zone differences between source and destination (not sure if this is reasonable)
 * Fixing out of bounds dates (eg. February 31st)

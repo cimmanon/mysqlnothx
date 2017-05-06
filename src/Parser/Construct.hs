@@ -220,6 +220,10 @@ knownColumnType = do
 		"VARCHAR" -> Varchar <$> simplePrecision
 		"CHAR" -> Char <$> simplePrecision
 
+		-- Enum/Set
+		"SET" -> Set <$> setValues
+		"ENUM" -> Enum <$> setValues
+
 		-- Integer
 		"TINYINT" -> Integer 1 <$> intAttributes
 		"SMALLINT" -> Integer 2 <$> intAttributes
@@ -259,6 +263,7 @@ knownColumnType = do
 			y <- int
 			string ")"
 			return (x, y)
+		setValues = parenthesed $ csv sqlQuotedString'
 
 unknownColumnType :: Parser BS.ByteString
 unknownColumnType = complex <|> simple

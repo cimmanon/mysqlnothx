@@ -91,8 +91,8 @@ CREATE TABLE "types" (
 	"test_datetime" TIMESTAMP,
 	"test_date" DATE NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	"test_date_zero_default" DATE NOT NULL DEFAULT '0000-00-00',
-	"test_enum" ENUM('chocolate', 'vanilla'),
-	"test_set" SET('cat', 'dog', 'doge', 'other')
+	"test_enum" TEXT CONSTRAINT "test_enum_allowed_values_ck" CHECK ("test_enum" = any(ARRAY['chocolate','vanilla'])),
+	"test_set" TEXT[] CONSTRAINT "test_set_allowed_values_ck" CHECK ("test_set" <@ ARRAY['cat','dog','doge','other'])
 );
 
 

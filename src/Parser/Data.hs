@@ -91,6 +91,8 @@ scalarParser :: Scalar -> Parser BS.ByteString
 scalarParser (Text _) = mysqlQuotedString
 scalarParser (Char _) = mysqlQuotedString
 scalarParser (Varchar _) = mysqlQuotedString
+scalarParser (Enum _) = mysqlQuotedString
+scalarParser (Set _) = toArrayFormat <$> enum
 scalarParser (Bit i) = hexToBinary i <|> unquote (charToBinary i)
 scalarParser (Blob _) = hexToCopy <|> unquote blobToHex
 scalarParser (Numeric _ _) = numericToken
@@ -218,3 +220,28 @@ hexToBinary precision = intBin precision <$> hexInt
 	where
 		hexInt :: Parser Int
 		hexInt = read . BSC.unpack . BS.concat <$> sequence [string "0x", hex]
+
+{----------------------------------------------------------------------------------------------------{
+                                                                      | Set / Enum
+}----------------------------------------------------------------------------------------------------}
+
+{-
+PostgreSQL Array output:
+{one}
+{two,three}
+-}
+toArrayFormat :: [BS.ByteString] -> BS.ByteString
+toArrayFormat xs = BS.concat [ "{\"", BS.intercalate "\",\"" xs, "\"}" ]
+
+enum :: Parser [BS.ByteString]
+enum = unquote (csv insideQuotes)
+	where
+		insideQuotes = BS.concat <$> many1 (specialChars <|> noSpecialChars) <?> "inside quotes"
+		noSpecialChars = takeWhile1 (\ x -> not $ x `elem8` ['\\', '\'', ',']) <?> "no special chars"
+		-- TODO: fix the specialChars parser
+		specialChars =
+				(string "\"" >> return "\\\"") -- escape double quotes
+			<|> (string "\\\"" >> return "\"") -- unescape double quotes
+			<|> (string "\\\\" >> return "\\\\") -- preserve escaping on backslashes
+			-- TODO: double check if this is optimal
+			<|> string "\\" -- otherwise just return the slash

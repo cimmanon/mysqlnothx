@@ -99,6 +99,8 @@ data Scalar =
 	  Text Bytes
 	| Char Length
 	| Varchar Length
+	| Enum [ByteString]
+	| Set [ByteString]
 	| Bit Int
 	| Blob Bytes -- Binary data
 	| Numeric (Int, Int) Signed
