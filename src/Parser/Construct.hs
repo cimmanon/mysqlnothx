@@ -248,6 +248,8 @@ knownColumnType = do
 		"BLOB" -> return $ Blob 2
 		"MEDIUMBLOB" -> return $ Blob 3
 		"LONGBLOB" -> return $ Blob 4
+		"BINARY" -> (maybeMatch simplePrecision) *> return (Blob 2)
+		"VARBINARY" -> (maybeMatch simplePrecision) *> return (Blob 2)
 		"BIT" -> Bit <$> simplePrecision
 
 		_ -> fail "Unknown column type"
