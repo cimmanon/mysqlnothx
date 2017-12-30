@@ -20,7 +20,7 @@ executable mysqlnothx
   -- other-modules:
   -- other-extensions:
   build-depends:
-    base >=4.7 && <4.8
+    base >=4.7 && < 5
     , bytestring
     , attoparsec
     , mtl
