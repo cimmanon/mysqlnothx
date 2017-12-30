@@ -38,4 +38,5 @@ executable mysqlnothx
     -O2
     -fno-warn-orphans
     -fno-warn-unused-do-bind
+    -fno-warn-tabs
   ghc-prof-options: -O2 -prof -auto-all -rtsopts
