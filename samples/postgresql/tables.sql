@@ -70,6 +70,7 @@ CREATE TABLE "types" (
 	"test_bigint" BIGINT,
 	"test_integer" INTEGER,
 	"test_numeric" NUMERIC(10,2),
+	"test_decimal" NUMERIC(10,2),
 	"test_real" REAL,
 	"test_double" REAL,
 	"test_float" REAL,

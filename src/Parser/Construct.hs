@@ -236,6 +236,7 @@ knownColumnType = do
 		"FLOAT" -> Float <$> (maybeMatch precisePrecision *> signed)
 		"DOUBLE" -> Double <$> (maybeMatch precisePrecision *> signed)
 		"NUMERIC" -> Numeric <$> precisePrecision <*> signed
+		"DECIMAL" -> Numeric <$> precisePrecision <*> signed
 
 		-- Date
 		"DATE" -> return Date

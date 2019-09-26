@@ -28,6 +28,8 @@ TODO: write this part
 * Int (tiny, small, medium, big)
 * Double
 * Float
+* Numeric
+* Decimal
 
 In addition to porting these column types to their closest compatible PostgreSQL data type, it has fixes for the following cases:
 
