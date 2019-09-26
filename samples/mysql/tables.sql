@@ -43,7 +43,7 @@ CREATE TABLE types (
 	test_integer INTEGER,
 
 	test_numeric NUMERIC(10,2) unsigned,
-	test_decimal DECIMAL(10,2) DEFAULT NULL,
+	test_decimal DECIMAL(10,2) default NULL,
 	test_real REAL,
 	test_double DOUBLE,
 	test_float FLOAT,

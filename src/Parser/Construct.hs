@@ -196,7 +196,7 @@ tableColumn =
 		options =
 				(string "NOT NULL" >> return (Nullable False))
 			<|> (string "NULL" >> return (Nullable True))
-			<|> do Default <$> (string "DEFAULT" *> spaces *> expression)
+			<|> do Default <$> ((string "DEFAULT" <|> string "default") *> spaces *> expression)
 			<|> do InlineComment <$> (string "COMMENT" *> spaces *> sqlQuotedString)
 			<|> (string "AUTO_INCREMENT" >> return AutoIncrement)
 			<|> (string "PRIMARY KEY" >> return InlinePrimaryKey)
